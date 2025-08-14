@@ -404,6 +404,12 @@ async def create_prediction(
         }
     )
     
+    # Clean the response data for JSON serialization
+    if "_id" in prediction_data:
+        del prediction_data["_id"]
+    if "created_at" in prediction_data:
+        prediction_data["created_at"] = prediction_data["created_at"].isoformat()
+    
     return prediction_data
 
 # Bonus and referral endpoints
