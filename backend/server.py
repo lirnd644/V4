@@ -250,38 +250,51 @@ async def get_crypto_prices(currency: str = "USD", limit: int = 50):
         {"id": "maker", "symbol": "MKR", "name": "Maker", "current_price": 1285.50, "price_change_percentage_24h": 1.85, "volume_24h": 85000000, "market_cap": 1200000000, "icon": "maker"}
     ]
     
-    popular_coins = [
-        "bitcoin", "ethereum", "binancecoin", "cardano", "solana", 
-        "polkadot", "dogecoin", "avalanche-2", "chainlink", "polygon"
-    ]
+    
+    # Convert prices to requested currency
+    currency_rate = CURRENCY_RATES.get(currency.upper(), 1.0)
+    
+    # Add more cryptocurrencies to mock data and apply currency conversion
+    for crypto in mock_crypto_data[:limit]:
+        crypto["current_price"] *= currency_rate
+        crypto["volume_24h"] *= currency_rate
+        crypto["market_cap"] *= currency_rate
+        crypto["currency"] = currency.upper()
+        crypto["last_updated"] = datetime.utcnow()
+        
+        # Add icon URL
+        crypto["icon_url"] = f"https://assets.coingecko.com/coins/images/{crypto['icon']}/large/{crypto['icon']}.png"
     
     try:
+        # Try to get real data from CoinGecko API
+        coins_param = ",".join(CRYPTO_LIST[:limit])
         async with aiohttp.ClientSession() as session:
-            url = f"https://api.coingecko.com/api/v3/simple/price?ids={','.join(popular_coins)}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_market_cap=true"
+            url = f"https://api.coingecko.com/api/v3/coins/markets?vs_currency={currency.lower()}&ids={coins_param}&order=market_cap_desc&per_page={limit}&page=1&sparkline=false"
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    crypto_data = []
+                    real_crypto_data = []
                     
-                    for coin_id, coin_data in data.items():
+                    for coin in data:
                         crypto_info = {
-                            "symbol": coin_id.replace("-", "").upper(),
-                            "current_price": coin_data.get("usd", 0),
-                            "price_change_24h": coin_data.get("usd_24h_change", 0),
-                            "price_change_percentage_24h": coin_data.get("usd_24h_change", 0),
-                            "volume_24h": coin_data.get("usd_24h_vol", 0),
-                            "market_cap": coin_data.get("usd_market_cap", 0),
+                            "id": coin.get("id"),
+                            "symbol": coin.get("symbol", "").upper(),
+                            "name": coin.get("name", ""),
+                            "current_price": coin.get("current_price", 0),
+                            "price_change_percentage_24h": coin.get("price_change_percentage_24h", 0),
+                            "volume_24h": coin.get("total_volume", 0),
+                            "market_cap": coin.get("market_cap", 0),
+                            "currency": currency.upper(),
+                            "icon_url": coin.get("image", ""),
                             "last_updated": datetime.utcnow()
                         }
-                        crypto_data.append(crypto_info)
+                        real_crypto_data.append(crypto_info)
                     
-                    return crypto_data
+                    return real_crypto_data
                 else:
-                    # Return mock data if API fails
-                    return mock_crypto_data
+                    return mock_crypto_data[:limit]
     except Exception as e:
-        # Return mock data if any exception occurs
-        return mock_crypto_data
+        return mock_crypto_data[:limit]
 
 @app.get("/api/crypto/chart/{symbol}")
 async def get_crypto_chart(symbol: str, timeframe: str = "1h"):
