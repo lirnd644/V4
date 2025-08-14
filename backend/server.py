@@ -323,6 +323,14 @@ async def get_predictions(user: User = Depends(get_current_user)):
         raise HTTPException(status_code=401, detail="Not authenticated")
     
     predictions = await db.predictions.find({"user_id": user.id}).sort("created_at", -1).to_list(100)
+    
+    # Convert ObjectId to string and handle datetime serialization
+    for prediction in predictions:
+        if "_id" in prediction:
+            del prediction["_id"]  # Remove MongoDB _id field
+        if "created_at" in prediction and isinstance(prediction["created_at"], datetime):
+            prediction["created_at"] = prediction["created_at"].isoformat()
+    
     return predictions
 
 @app.post("/api/predictions")
