@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { TrendingUp, User, Target, Users, Gift, LogOut } from 'lucide-react';
+import { TrendingUp, User, Target, Users, Gift, LogOut, Shield } from 'lucide-react';
 
 const Header = ({ user, onLogout }) => {
   const location = useLocation();
