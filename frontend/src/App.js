@@ -7,9 +7,11 @@ import './App.css';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
 import Profile from './components/Profile';
-import Predictions from './components/Predictions';
+import BinaryTrading from './components/BinaryTrading';
+import Investments from './components/Investments';
 import Referrals from './components/Referrals';
 import Bonus from './components/Bonus';
+import Settings from './components/Settings';
 import Login from './components/Login';
 
 const App = () => {
@@ -67,7 +69,10 @@ const App = () => {
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-cyan-400"></div>
+        <div className="text-center space-y-4">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-cyan-400 mx-auto"></div>
+          <h2 className="text-xl font-semibold text-white">Загрузка CripteX...</h2>
+        </div>
       </div>
     );
   }
@@ -84,9 +89,11 @@ const App = () => {
           <Routes>
             <Route path="/" element={<Dashboard user={user} />} />
             <Route path="/profile" element={<Profile user={user} setUser={setUser} />} />
-            <Route path="/predictions" element={<Predictions user={user} setUser={setUser} />} />
+            <Route path="/trading" element={<BinaryTrading user={user} setUser={setUser} />} />
+            <Route path="/investments" element={<Investments user={user} />} />
             <Route path="/referrals" element={<Referrals user={user} />} />
             <Route path="/bonus" element={<Bonus user={user} setUser={setUser} />} />
+            <Route path="/settings" element={<Settings user={user} setUser={setUser} />} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </main>
@@ -94,5 +101,7 @@ const App = () => {
     </Router>
   );
 };
+
+export default App;
 
 export default App;
