@@ -360,22 +360,280 @@ async def get_crypto_chart(symbol: str, timeframe: str = "1h"):
     except Exception as e:
         return mock_chart_data
 
-# Predictions endpoints
-@app.get("/api/predictions")
-async def get_predictions(user: User = Depends(get_current_user)):
+# Binary Options Predictions endpoints
+@app.get("/api/binary-predictions")
+async def get_binary_predictions(user: User = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     
-    predictions = await db.predictions.find({"user_id": user.id}).sort("created_at", -1).to_list(100)
+    predictions = await db.binary_predictions.find({"user_id": user.id}).sort("created_at", -1).to_list(100)
     
     # Convert ObjectId to string and handle datetime serialization
     for prediction in predictions:
         if "_id" in prediction:
-            del prediction["_id"]  # Remove MongoDB _id field
+            del prediction["_id"]
         if "created_at" in prediction and isinstance(prediction["created_at"], datetime):
             prediction["created_at"] = prediction["created_at"].isoformat()
+        if "entry_time" in prediction and isinstance(prediction["entry_time"], datetime):
+            prediction["entry_time"] = prediction["entry_time"].isoformat()
+        if "expiry_time" in prediction and isinstance(prediction["expiry_time"], datetime):
+            prediction["expiry_time"] = prediction["expiry_time"].isoformat()
     
     return predictions
+
+@app.post("/api/binary-predictions")
+async def create_binary_prediction(
+    request: Request,
+    user: User = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    if user.free_predictions <= 0:
+        raise HTTPException(status_code=400, detail="No free predictions remaining")
+    
+    data = await request.json()
+    symbol = data.get("symbol")
+    direction = data.get("direction")  # "UP" or "DOWN"
+    timeframe = data.get("timeframe")  # "1m", "5m", "15m", etc.
+    stake_amount = int(data.get("stake_amount", 1))  # How many predictions to stake
+    
+    if stake_amount > user.free_predictions:
+        raise HTTPException(status_code=400, detail="Insufficient free predictions")
+    
+    # Get current price for the symbol
+    current_price = await get_current_price_for_symbol(symbol, user.preferred_currency)
+    
+    # Calculate expiry time based on timeframe
+    timeframes = {
+        "1m": 1, "5m": 5, "15m": 15, "30m": 30,
+        "1h": 60, "4h": 240, "1d": 1440
+    }
+    expiry_minutes = timeframes.get(timeframe, 5)
+    
+    now = datetime.utcnow()
+    expiry_time = now + timedelta(minutes=expiry_minutes)
+    
+    # Calculate confidence score based on market conditions (mock calculation)
+    confidence_score = calculate_prediction_confidence(symbol, direction, timeframe)
+    
+    prediction_data = {
+        "id": str(uuid.uuid4()),
+        "user_id": user.id,
+        "symbol": symbol,
+        "direction": direction,
+        "timeframe": timeframe,
+        "entry_price": current_price,
+        "entry_time": now,
+        "expiry_time": expiry_time,
+        "stake_amount": stake_amount,
+        "confidence_score": confidence_score,
+        "status": "ACTIVE",
+        "result_price": None,
+        "created_at": now,
+        "is_free": True
+    }
+    
+    await db.binary_predictions.insert_one(prediction_data)
+    
+    # Update user's free predictions count
+    await db.users.update_one(
+        {"id": user.id},
+        {
+            "$inc": {"free_predictions": -stake_amount, "total_predictions_used": 1}
+        }
+    )
+    
+    # Clean response data
+    if "_id" in prediction_data:
+        del prediction_data["_id"]
+    prediction_data["created_at"] = prediction_data["created_at"].isoformat()
+    prediction_data["entry_time"] = prediction_data["entry_time"].isoformat()
+    prediction_data["expiry_time"] = prediction_data["expiry_time"].isoformat()
+    
+    return prediction_data
+
+@app.get("/api/investment-recommendations")
+async def get_investment_recommendations(currency: str = "USD", limit: int = 10):
+    """Get AI-powered investment recommendations"""
+    
+    # Mock investment recommendations with high accuracy
+    recommendations = [
+        {
+            "id": str(uuid.uuid4()),
+            "symbol": "BTC",
+            "recommendation_type": "BUY",
+            "confidence": 85.5,
+            "target_price": 48000,
+            "stop_loss": 42000,
+            "timeframe": "1-3 months",
+            "reason": "Институциональная поддержка растет, техническая картина позитивная",
+            "accuracy_rating": 78.5,
+            "created_at": datetime.utcnow().isoformat()
+        },
+        {
+            "id": str(uuid.uuid4()),
+            "symbol": "ETH",
+            "recommendation_type": "BUY",
+            "confidence": 82.3,
+            "target_price": 3200,
+            "stop_loss": 2600,
+            "timeframe": "2-4 weeks",
+            "reason": "Предстоящие обновления сети, рост DeFi активности",
+            "accuracy_rating": 76.2,
+            "created_at": datetime.utcnow().isoformat()
+        },
+        {
+            "id": str(uuid.uuid4()),
+            "symbol": "SOL",
+            "recommendation_type": "HOLD",
+            "confidence": 71.8,
+            "target_price": 110,
+            "stop_loss": 85,
+            "timeframe": "1-2 months",
+            "reason": "Хорошие фундаментальные показатели, но краткосрочная неопределенность",
+            "accuracy_rating": 73.1,
+            "created_at": datetime.utcnow().isoformat()
+        },
+        {
+            "id": str(uuid.uuid4()),
+            "symbol": "ADA",
+            "recommendation_type": "BUY",
+            "confidence": 79.2,
+            "target_price": 0.65,
+            "stop_loss": 0.40,
+            "timeframe": "3-6 months",
+            "reason": "Развитие экосистемы, увеличение числа dApps",
+            "accuracy_rating": 74.8,
+            "created_at": datetime.utcnow().isoformat()
+        },
+        {
+            "id": str(uuid.uuid4()),
+            "symbol": "DOT",
+            "recommendation_type": "BUY",
+            "confidence": 75.6,
+            "target_price": 22,
+            "stop_loss": 12,
+            "timeframe": "2-4 months",
+            "reason": "Парачейн аукционы показывают активность экосистемы",
+            "accuracy_rating": 72.3,
+            "created_at": datetime.utcnow().isoformat()
+        }
+    ]
+    
+    return recommendations[:limit]
+
+# User Settings endpoints
+@app.get("/api/user/settings")
+async def get_user_settings(user: User = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    return {
+        "theme": user.theme,
+        "language": user.language,
+        "notifications_enabled": user.notifications_enabled,
+        "preferred_currency": user.preferred_currency
+    }
+
+@app.put("/api/user/settings")
+async def update_user_settings(
+    request: Request,
+    user: User = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    data = await request.json()
+    
+    update_data = {}
+    if "theme" in data:
+        update_data["theme"] = data["theme"]
+    if "language" in data:
+        update_data["language"] = data["language"]
+    if "notifications_enabled" in data:
+        update_data["notifications_enabled"] = data["notifications_enabled"]
+    if "preferred_currency" in data:
+        update_data["preferred_currency"] = data["preferred_currency"]
+    
+    await db.users.update_one(
+        {"id": user.id},
+        {"$set": update_data}
+    )
+    
+    return {"message": "Settings updated successfully"}
+
+@app.get("/api/currencies")
+async def get_supported_currencies():
+    """Get list of supported currencies"""
+    return {
+        "currencies": [
+            {"code": "USD", "name": "US Dollar", "symbol": "$"},
+            {"code": "RUB", "name": "Russian Ruble", "symbol": "₽"},
+            {"code": "EUR", "name": "Euro", "symbol": "€"},
+            {"code": "GBP", "name": "British Pound", "symbol": "£"},
+            {"code": "JPY", "name": "Japanese Yen", "symbol": "¥"},
+            {"code": "CNY", "name": "Chinese Yuan", "symbol": "¥"},
+            {"code": "KRW", "name": "South Korean Won", "symbol": "₩"},
+            {"code": "INR", "name": "Indian Rupee", "symbol": "₹"}
+        ]
+    }
+
+# Helper functions
+async def get_current_price_for_symbol(symbol: str, currency: str = "USD"):
+    """Get current price for a specific symbol"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            symbol_map = {
+                "BTC": "bitcoin", "ETH": "ethereum", "BNB": "binancecoin",
+                "ADA": "cardano", "SOL": "solana", "DOT": "polkadot",
+                "DOGE": "dogecoin", "AVAX": "avalanche-2", "LINK": "chainlink",
+                "MATIC": "polygon"
+            }
+            coin_id = symbol_map.get(symbol.upper(), symbol.lower())
+            
+            url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies={currency.lower()}"
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=3)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data[coin_id][currency.lower()]
+    except:
+        pass
+    
+    # Fallback mock prices
+    mock_prices = {
+        "BTC": 45230.50, "ETH": 2845.75, "BNB": 312.40, "ADA": 0.485,
+        "SOL": 98.75, "DOT": 15.85, "DOGE": 0.085, "AVAX": 28.50,
+        "LINK": 18.75, "MATIC": 0.95
+    }
+    base_price = mock_prices.get(symbol.upper(), 100.0)
+    currency_rate = CURRENCY_RATES.get(currency.upper(), 1.0)
+    return base_price * currency_rate
+
+def calculate_prediction_confidence(symbol: str, direction: str, timeframe: str):
+    """Calculate prediction confidence based on market analysis (mock)"""
+    import random
+    
+    # Base confidence varies by symbol volatility
+    base_confidence = {
+        "BTC": 75.0, "ETH": 73.0, "BNB": 70.0, "ADA": 68.0, "SOL": 65.0,
+        "DOT": 67.0, "DOGE": 60.0, "AVAX": 66.0, "LINK": 69.0, "MATIC": 68.0
+    }
+    
+    confidence = base_confidence.get(symbol, 65.0)
+    
+    # Adjust for timeframe (shorter = lower confidence)
+    timeframe_multipliers = {
+        "1m": 0.85, "5m": 0.90, "15m": 0.95, "30m": 1.0,
+        "1h": 1.05, "4h": 1.10, "1d": 1.15
+    }
+    
+    confidence *= timeframe_multipliers.get(timeframe, 1.0)
+    
+    # Add some randomness
+    confidence += random.uniform(-5, 5)
+    
+    return round(min(95, max(55, confidence)), 1)
 
 @app.post("/api/predictions")
 async def create_prediction(
