@@ -61,15 +61,15 @@ class CripteXAPITester:
             print(f"❌ Failed - Error: {str(e)}")
             return False, {}
 
-    def test_crypto_endpoints(self):
-        """Test crypto data endpoints"""
+    def test_extended_crypto_api(self):
+        """Test extended crypto API with multi-currency support"""
         print("\n" + "="*50)
-        print("TESTING CRYPTO DATA ENDPOINTS")
+        print("TESTING EXTENDED CRYPTO API")
         print("="*50)
         
-        # Test crypto prices
+        # Test crypto prices with default USD
         success, data = self.run_test(
-            "Get Crypto Prices",
+            "Get Crypto Prices (USD)",
             "GET",
             "api/crypto/prices",
             200
@@ -78,19 +78,171 @@ class CripteXAPITester:
         if success and data:
             print(f"   Found {len(data)} crypto currencies")
             if len(data) > 0:
-                print(f"   Sample crypto: {data[0].get('symbol', 'N/A')} - ${data[0].get('current_price', 'N/A')}")
+                crypto = data[0]
+                print(f"   Sample crypto: {crypto.get('symbol', 'N/A')} - ${crypto.get('current_price', 'N/A')}")
+                print(f"   Has icon URL: {'icon_url' in crypto}")
+                print(f"   Currency: {crypto.get('currency', 'N/A')}")
         
-        # Test crypto chart data
-        success, data = self.run_test(
-            "Get Bitcoin Chart Data",
+        # Test crypto prices with different currencies
+        currencies = ["RUB", "EUR", "GBP", "JPY", "CNY", "KRW", "INR"]
+        for currency in currencies:
+            success, data = self.run_test(
+                f"Get Crypto Prices ({currency})",
+                "GET",
+                "api/crypto/prices",
+                200,
+                params={"currency": currency, "limit": 10}
+            )
+            
+            if success and data and len(data) > 0:
+                print(f"   {currency} conversion working - BTC price: {data[0].get('current_price', 'N/A')}")
+        
+        # Test crypto chart data for different symbols
+        symbols = ["bitcoin", "ethereum", "binancecoin"]
+        timeframes = ["1h", "4h", "1d"]
+        
+        for symbol in symbols:
+            for timeframe in timeframes:
+                success, data = self.run_test(
+                    f"Get {symbol.title()} Chart ({timeframe})",
+                    "GET",
+                    f"api/crypto/chart/{symbol}",
+                    200,
+                    params={"timeframe": timeframe}
+                )
+                
+                if success and data:
+                    prices = data.get('prices', [])
+                    volumes = data.get('volumes', [])
+                    print(f"   Chart data - Prices: {len(prices)}, Volumes: {len(volumes)}")
+
+    def test_binary_options_api(self):
+        """Test binary options API endpoints"""
+        print("\n" + "="*50)
+        print("TESTING BINARY OPTIONS API")
+        print("="*50)
+        
+        # Test get binary predictions without auth (should fail)
+        self.run_test(
+            "Get Binary Predictions (Unauthenticated)",
             "GET",
-            "api/crypto/chart/bitcoin?timeframe=1h",
+            "api/binary-predictions",
+            401
+        )
+        
+        # Test create binary prediction without auth (should fail)
+        self.run_test(
+            "Create Binary Prediction (Unauthenticated)",
+            "POST",
+            "api/binary-predictions",
+            401,
+            data={
+                "symbol": "BTC",
+                "direction": "UP",
+                "timeframe": "5m",
+                "stake_amount": 1
+            }
+        )
+
+    def test_investment_recommendations_api(self):
+        """Test investment recommendations API"""
+        print("\n" + "="*50)
+        print("TESTING INVESTMENT RECOMMENDATIONS API")
+        print("="*50)
+        
+        # Test get investment recommendations
+        success, data = self.run_test(
+            "Get Investment Recommendations",
+            "GET",
+            "api/investment-recommendations",
             200
         )
         
         if success and data:
-            prices = data.get('prices', [])
-            print(f"   Chart data points: {len(prices)}")
+            print(f"   Found {len(data)} investment recommendations")
+            if len(data) > 0:
+                rec = data[0]
+                print(f"   Sample recommendation: {rec.get('symbol', 'N/A')} - {rec.get('recommendation_type', 'N/A')}")
+                print(f"   Confidence: {rec.get('confidence', 'N/A')}%")
+                print(f"   Target Price: {rec.get('target_price', 'N/A')}")
+                print(f"   Reason: {rec.get('reason', 'N/A')[:50]}...")
+        
+        # Test with different currencies and limits
+        for currency in ["USD", "RUB", "EUR"]:
+            success, data = self.run_test(
+                f"Get Investment Recommendations ({currency})",
+                "GET",
+                "api/investment-recommendations",
+                200,
+                params={"currency": currency, "limit": 5}
+            )
+            
+            if success and data:
+                print(f"   {currency} recommendations: {len(data)} items")
+
+    def test_user_settings_api(self):
+        """Test user settings API endpoints"""
+        print("\n" + "="*50)
+        print("TESTING USER SETTINGS API")
+        print("="*50)
+        
+        # Test get user settings without auth (should fail)
+        self.run_test(
+            "Get User Settings (Unauthenticated)",
+            "GET",
+            "api/user/settings",
+            401
+        )
+        
+        # Test update user settings without auth (should fail)
+        self.run_test(
+            "Update User Settings (Unauthenticated)",
+            "PUT",
+            "api/user/settings",
+            401,
+            data={
+                "theme": "light",
+                "language": "en",
+                "notifications_enabled": False,
+                "preferred_currency": "EUR"
+            }
+        )
+
+    def test_currencies_api(self):
+        """Test currencies API endpoint"""
+        print("\n" + "="*50)
+        print("TESTING CURRENCIES API")
+        print("="*50)
+        
+        success, data = self.run_test(
+            "Get Supported Currencies",
+            "GET",
+            "api/currencies",
+            200
+        )
+        
+        if success and data:
+            currencies = data.get('currencies', [])
+            print(f"   Found {len(currencies)} supported currencies")
+            
+            expected_currencies = ["USD", "RUB", "EUR", "GBP", "JPY", "CNY", "KRW", "INR"]
+            found_codes = [curr.get('code') for curr in currencies]
+            
+            for expected in expected_currencies:
+                if expected in found_codes:
+                    print(f"   ✅ {expected} currency supported")
+                else:
+                    print(f"   ❌ {expected} currency missing")
+            
+            # Check currency structure
+            if currencies:
+                sample = currencies[0]
+                required_fields = ['code', 'name', 'symbol']
+                for field in required_fields:
+                    if field in sample:
+                        print(f"   ✅ Currency has {field} field")
+                    else:
+                        print(f"   ❌ Currency missing {field} field")
 
     def test_auth_endpoints_without_session(self):
         """Test authentication endpoints without valid session"""
