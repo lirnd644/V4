@@ -186,58 +186,68 @@ async def logout(response: Response, user: User = Depends(get_current_user)):
     response.delete_cookie(key="session_token", path="/")
     return {"message": "Logged out successfully"}
 
-# Crypto data endpoints
+# Extended crypto data with all major cryptocurrencies
+CRYPTO_LIST = [
+    "bitcoin", "ethereum", "binancecoin", "cardano", "solana", "polkadot", "dogecoin", 
+    "avalanche-2", "chainlink", "polygon", "litecoin", "bitcoin-cash", "ethereum-classic",
+    "stellar", "vechain", "tron", "cosmos", "algorand", "tezos", "monero", "dash",
+    "zcash", "decred", "qtum", "icon", "ontology", "neo", "waves", "stratis",
+    "ripple", "eos", "iota", "nem", "omisego", "basic-attention-token", "0x",
+    "zilliqa", "enjincoin", "maker", "compound", "aave", "uniswap", "sushiswap",
+    "pancakeswap-token", "1inch", "yearn-finance", "curve-dao-token", "synthetix",
+    "uma", "balancer", "kyber-network-crystal", "loopring", "bancor", "ren",
+    "storj", "filecoin", "siacoin", "arweave", "ocean-protocol", "nucypher",
+    "the-graph", "livepeer", "audius", "theta-token", "helium", "holo",
+    "flow", "near", "harmony", "fantom", "celo", "elrond-erd-2", "terra-luna",
+    "thorchain", "secret", "kava", "band-protocol", "injective-protocol",
+    "serum", "raydium", "orca", "marinade", "step-finance", "star-atlas",
+    "gensokishi-metaverse", "shiba-inu", "pepe", "floki", "baby-doge-coin",
+    "safemoon", "bonk", "wojak", "meme", "doge-killer"
+]
+
+# Currency pairs and conversion rates
+CURRENCY_RATES = {
+    "USD": 1.0,
+    "RUB": 92.5,
+    "EUR": 0.85,
+    "GBP": 0.73,
+    "JPY": 110.0,
+    "CNY": 6.4,
+    "KRW": 1200.0,
+    "INR": 74.5
+}
+
 @app.get("/api/crypto/prices")
-async def get_crypto_prices():
-    """Get current crypto prices from CoinGecko API with fallback to mock data"""
+async def get_crypto_prices(currency: str = "USD", limit: int = 50):
+    """Get current crypto prices with support for multiple currencies"""
     
-    # Mock data as fallback
+    # Comprehensive mock data for all major cryptocurrencies
     mock_crypto_data = [
-        {
-            "symbol": "BITCOIN",
-            "current_price": 45230.50,
-            "price_change_24h": 1250.30,
-            "price_change_percentage_24h": 2.85,
-            "volume_24h": 15420000000,
-            "market_cap": 890000000000,
-            "last_updated": datetime.utcnow()
-        },
-        {
-            "symbol": "ETHEREUM",
-            "current_price": 2845.75,
-            "price_change_24h": -85.25,
-            "price_change_percentage_24h": -2.91,
-            "volume_24h": 8230000000,
-            "market_cap": 342000000000,
-            "last_updated": datetime.utcnow()
-        },
-        {
-            "symbol": "BINANCECOIN",
-            "current_price": 312.40,
-            "price_change_24h": 12.80,
-            "price_change_percentage_24h": 4.27,
-            "volume_24h": 1250000000,
-            "market_cap": 46800000000,
-            "last_updated": datetime.utcnow()
-        },
-        {
-            "symbol": "CARDANO",
-            "current_price": 0.485,
-            "price_change_24h": 0.028,
-            "price_change_percentage_24h": 6.13,
-            "volume_24h": 420000000,
-            "market_cap": 17200000000,
-            "last_updated": datetime.utcnow()
-        },
-        {
-            "symbol": "SOLANA",
-            "current_price": 98.75,
-            "price_change_24h": -3.45,
-            "price_change_percentage_24h": -3.38,
-            "volume_24h": 1850000000,
-            "market_cap": 45600000000,
-            "last_updated": datetime.utcnow()
-        }
+        {"id": "bitcoin", "symbol": "BTC", "name": "Bitcoin", "current_price": 45230.50, "price_change_percentage_24h": 2.85, "volume_24h": 15420000000, "market_cap": 890000000000, "icon": "bitcoin"},
+        {"id": "ethereum", "symbol": "ETH", "name": "Ethereum", "current_price": 2845.75, "price_change_percentage_24h": -2.91, "volume_24h": 8230000000, "market_cap": 342000000000, "icon": "ethereum"},
+        {"id": "binancecoin", "symbol": "BNB", "name": "BNB", "current_price": 312.40, "price_change_percentage_24h": 4.27, "volume_24h": 1250000000, "market_cap": 46800000000, "icon": "binancecoin"},
+        {"id": "cardano", "symbol": "ADA", "name": "Cardano", "current_price": 0.485, "price_change_percentage_24h": 6.13, "volume_24h": 420000000, "market_cap": 17200000000, "icon": "cardano"},
+        {"id": "solana", "symbol": "SOL", "name": "Solana", "current_price": 98.75, "price_change_percentage_24h": -3.38, "volume_24h": 1850000000, "market_cap": 45600000000, "icon": "solana"},
+        {"id": "polkadot", "symbol": "DOT", "name": "Polkadot", "current_price": 15.85, "price_change_percentage_24h": 1.25, "volume_24h": 380000000, "market_cap": 18500000000, "icon": "polkadot"},
+        {"id": "dogecoin", "symbol": "DOGE", "name": "Dogecoin", "current_price": 0.085, "price_change_percentage_24h": 8.45, "volume_24h": 850000000, "market_cap": 12000000000, "icon": "dogecoin"},
+        {"id": "avalanche-2", "symbol": "AVAX", "name": "Avalanche", "current_price": 28.50, "price_change_percentage_24h": -1.85, "volume_24h": 680000000, "market_cap": 11500000000, "icon": "avalanche-2"},
+        {"id": "chainlink", "symbol": "LINK", "name": "Chainlink", "current_price": 18.75, "price_change_percentage_24h": 3.25, "volume_24h": 485000000, "market_cap": 10800000000, "icon": "chainlink"},
+        {"id": "polygon", "symbol": "MATIC", "name": "Polygon", "current_price": 0.95, "price_change_percentage_24h": 5.85, "volume_24h": 425000000, "market_cap": 9200000000, "icon": "polygon"},
+        {"id": "litecoin", "symbol": "LTC", "name": "Litecoin", "current_price": 85.40, "price_change_percentage_24h": 2.15, "volume_24h": 380000000, "market_cap": 6400000000, "icon": "litecoin"},
+        {"id": "bitcoin-cash", "symbol": "BCH", "name": "Bitcoin Cash", "current_price": 285.50, "price_change_percentage_24h": 1.85, "volume_24h": 185000000, "market_cap": 5600000000, "icon": "bitcoin-cash"},
+        {"id": "stellar", "symbol": "XLM", "name": "Stellar", "current_price": 0.125, "price_change_percentage_24h": 4.25, "volume_24h": 125000000, "market_cap": 3200000000, "icon": "stellar"},
+        {"id": "vechain", "symbol": "VET", "name": "VeChain", "current_price": 0.045, "price_change_percentage_24h": 6.85, "volume_24h": 85000000, "market_cap": 3100000000, "icon": "vechain"},
+        {"id": "tron", "symbol": "TRX", "name": "TRON", "current_price": 0.085, "price_change_percentage_24h": 3.45, "volume_24h": 485000000, "market_cap": 7800000000, "icon": "tron"},
+        {"id": "cosmos", "symbol": "ATOM", "name": "Cosmos", "current_price": 12.85, "price_change_percentage_24h": 2.85, "volume_24h": 185000000, "market_cap": 3800000000, "icon": "cosmos"},
+        {"id": "algorand", "symbol": "ALGO", "name": "Algorand", "current_price": 0.285, "price_change_percentage_24h": 4.85, "volume_24h": 125000000, "market_cap": 2200000000, "icon": "algorand"},
+        {"id": "tezos", "symbol": "XTZ", "name": "Tezos", "current_price": 1.85, "price_change_percentage_24h": 1.85, "volume_24h": 85000000, "market_cap": 1800000000, "icon": "tezos"},
+        {"id": "monero", "symbol": "XMR", "name": "Monero", "current_price": 165.50, "price_change_percentage_24h": -0.85, "volume_24h": 125000000, "market_cap": 3000000000, "icon": "monero"},
+        {"id": "ripple", "symbol": "XRP", "name": "XRP", "current_price": 0.58, "price_change_percentage_24h": 2.45, "volume_24h": 1200000000, "market_cap": 32000000000, "icon": "ripple"},
+        {"id": "shiba-inu", "symbol": "SHIB", "name": "Shiba Inu", "current_price": 0.0000085, "price_change_percentage_24h": 12.85, "volume_24h": 485000000, "market_cap": 5000000000, "icon": "shiba-inu"},
+        {"id": "pepe", "symbol": "PEPE", "name": "Pepe", "current_price": 0.00000125, "price_change_percentage_24h": 25.85, "volume_24h": 285000000, "market_cap": 580000000, "icon": "pepe"},
+        {"id": "uniswap", "symbol": "UNI", "name": "Uniswap", "current_price": 8.85, "price_change_percentage_24h": 3.85, "volume_24h": 185000000, "market_cap": 6800000000, "icon": "uniswap"},
+        {"id": "aave", "symbol": "AAVE", "name": "Aave", "current_price": 125.50, "price_change_percentage_24h": 2.25, "volume_24h": 125000000, "market_cap": 1800000000, "icon": "aave"},
+        {"id": "maker", "symbol": "MKR", "name": "Maker", "current_price": 1285.50, "price_change_percentage_24h": 1.85, "volume_24h": 85000000, "market_cap": 1200000000, "icon": "maker"}
     ]
     
     popular_coins = [
