@@ -7,10 +7,11 @@ const Header = ({ user, onLogout }) => {
 
   const navItems = [
     { path: '/', label: 'Дашборд', icon: TrendingUp },
-    { path: '/predictions', label: 'Прогнозы', icon: Target },
+    { path: '/trading', label: 'Торговля', icon: Target },
+    { path: '/investments', label: 'Инвестиции', icon: Shield },
     { path: '/referrals', label: 'Рефералы', icon: Users },
     { path: '/bonus', label: 'Бонусы', icon: Gift },
-    { path: '/profile', label: 'Профиль', icon: User },
+    { path: '/settings', label: 'Настройки', icon: User },
   ];
 
   return (
