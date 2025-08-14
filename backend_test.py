@@ -11,7 +11,7 @@ class CripteXAPITester:
         self.tests_passed = 0
         self.user_data = None
 
-    def run_test(self, name, method, endpoint, expected_status, data=None, headers=None):
+    def run_test(self, name, method, endpoint, expected_status, data=None, headers=None, params=None):
         """Run a single API test"""
         url = f"{self.base_url}/{endpoint}"
         test_headers = {'Content-Type': 'application/json'}
@@ -25,10 +25,12 @@ class CripteXAPITester:
         self.tests_run += 1
         print(f"\n🔍 Testing {name}...")
         print(f"   URL: {url}")
+        if params:
+            print(f"   Params: {params}")
         
         try:
             if method == 'GET':
-                response = requests.get(url, headers=test_headers)
+                response = requests.get(url, headers=test_headers, params=params)
             elif method == 'POST':
                 response = requests.post(url, json=data, headers=test_headers)
             elif method == 'PUT':
@@ -42,7 +44,7 @@ class CripteXAPITester:
                 print(f"✅ Passed - Status: {response.status_code}")
                 try:
                     response_data = response.json()
-                    print(f"   Response: {json.dumps(response_data, indent=2)[:200]}...")
+                    print(f"   Response: {json.dumps(response_data, indent=2)[:300]}...")
                     return True, response_data
                 except:
                     return True, {}
