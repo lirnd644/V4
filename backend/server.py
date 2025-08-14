@@ -49,12 +49,18 @@ class User(BaseModel):
     picture: str
     free_predictions: int = 5
     total_predictions_used: int = 0
+    successful_predictions: int = 0
     referral_code: str
     referred_by: Optional[str] = None
     referral_count: int = 0
     referral_earnings: int = 0
     created_at: datetime
     last_bonus_claim: Optional[datetime] = None
+    # User settings
+    theme: str = "dark"
+    language: str = "ru"
+    notifications_enabled: bool = True
+    preferred_currency: str = "USD"
 
 class Session(BaseModel):
     session_token: str
@@ -62,18 +68,33 @@ class Session(BaseModel):
     expires_at: datetime
     created_at: datetime
 
-class Prediction(BaseModel):
+class BinaryPrediction(BaseModel):
     id: str
     user_id: str
     symbol: str
-    prediction_type: str  # "bullish", "bearish"
-    timeframe: str  # "5m", "15m", "1h", "4h", "1d"
-    confidence: float
+    direction: str  # "UP" or "DOWN"
+    timeframe: str  # "1m", "5m", "15m", "30m", "1h", "4h", "1d"
     entry_price: float
+    entry_time: datetime
+    expiry_time: datetime
+    stake_amount: int  # Number of free predictions used (1 for normal, 2 for high stakes)
+    confidence_score: float
+    status: str = "ACTIVE"  # "ACTIVE", "WON", "LOST", "EXPIRED"
+    result_price: Optional[float] = None
+    created_at: datetime
+    is_free: bool = True
+
+class InvestmentRecommendation(BaseModel):
+    id: str
+    symbol: str
+    recommendation_type: str  # "BUY", "SELL", "HOLD"
+    confidence: float
     target_price: float
     stop_loss: float
+    timeframe: str
+    reason: str
     created_at: datetime
-    is_free: bool
+    accuracy_rating: float
 
 class CryptoData(BaseModel):
     symbol: str
