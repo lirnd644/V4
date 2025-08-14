@@ -317,11 +317,7 @@ async def get_predictions(user: User = Depends(get_current_user)):
 
 @app.post("/api/predictions")
 async def create_prediction(
-    symbol: str,
-    prediction_type: str,
-    timeframe: str,
-    target_price: float,
-    stop_loss: float,
+    request: Request,
     user: User = Depends(get_current_user)
 ):
     if not user:
@@ -330,21 +326,40 @@ async def create_prediction(
     if user.free_predictions <= 0:
         raise HTTPException(status_code=400, detail="No free predictions remaining")
     
-    # Get current price
+    # Get request data
+    data = await request.json()
+    symbol = data.get("symbol")
+    prediction_type = data.get("prediction_type")
+    timeframe = data.get("timeframe")
+    target_price = float(data.get("target_price"))
+    stop_loss = float(data.get("stop_loss"))
+    
+    # Get current price (use mock data if API fails)
+    current_price = 45230.50  # Default fallback
     try:
+        coin_map = {
+            "BITCOIN": "bitcoin",
+            "ETHEREUM": "ethereum",
+            "BINANCECOIN": "binancecoin"
+        }
+        coin_id = coin_map.get(symbol.upper(), symbol.lower())
+        
         async with aiohttp.ClientSession() as session:
-            coin_map = {
-                "BITCOIN": "bitcoin",
-                "ETHEREUM": "ethereum",
-                "BINANCECOIN": "binancecoin"
-            }
-            coin_id = coin_map.get(symbol.upper(), symbol.lower())
             url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd"
-            async with session.get(url) as resp:
-                data = await resp.json()
-                current_price = data[coin_id]["usd"]
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=3)) as resp:
+                if resp.status == 200:
+                    api_data = await resp.json()
+                    current_price = api_data[coin_id]["usd"]
     except:
-        current_price = 50000  # Fallback price
+        # Use symbol-specific mock prices
+        mock_prices = {
+            "BITCOIN": 45230.50,
+            "ETHEREUM": 2845.75,
+            "BINANCECOIN": 312.40,
+            "CARDANO": 0.485,
+            "SOLANA": 98.75
+        }
+        current_price = mock_prices.get(symbol.upper(), 45230.50)
     
     # Create prediction
     prediction_data = {
