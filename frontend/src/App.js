@@ -1,54 +1,98 @@
-import { useEffect } from "react";
-import "./App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
+import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import axios from 'axios';
+import './App.css';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+// Components
+import Header from './components/Header';
+import Dashboard from './components/Dashboard';
+import Profile from './components/Profile';
+import Predictions from './components/Predictions';
+import Referrals from './components/Referrals';
+import Bonus from './components/Bonus';
+import Login from './components/Login';
 
-const Home = () => {
-  const helloWorldApi = async () => {
+const App = () => {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // Configure axios defaults
+  axios.defaults.baseURL = process.env.REACT_APP_BACKEND_URL;
+  axios.defaults.withCredentials = true;
+
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  const checkAuth = async () => {
     try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
+      // Check for session ID in URL fragment first
+      const fragment = window.location.hash;
+      if (fragment.includes('session_id=')) {
+        const sessionId = fragment.split('session_id=')[1].split('&')[0];
+        await handleSessionAuth(sessionId);
+        // Clean up URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+        return;
+      }
+
+      // Check existing session
+      const response = await axios.get('/api/auth/me');
+      setUser(response.data);
+    } catch (error) {
+      console.log('Not authenticated');
+    } finally {
+      setLoading(false);
     }
   };
 
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
+  const handleSessionAuth = async (sessionId) => {
+    try {
+      const response = await axios.post('/api/auth/session', { session_id: sessionId });
+      setUser(response.data.user);
+    } catch (error) {
+      console.error('Session authentication failed:', error);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await axios.post('/api/auth/logout');
+      setUser(null);
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-cyan-400"></div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Login />;
+  }
 
   return (
-    <div>
-      <header className="App-header">
-        <a
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
+    <Router>
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+        <Header user={user} onLogout={handleLogout} />
+        <main className="container mx-auto px-4 py-8">
+          <Routes>
+            <Route path="/" element={<Dashboard user={user} />} />
+            <Route path="/profile" element={<Profile user={user} setUser={setUser} />} />
+            <Route path="/predictions" element={<Predictions user={user} setUser={setUser} />} />
+            <Route path="/referrals" element={<Referrals user={user} />} />
+            <Route path="/bonus" element={<Bonus user={user} setUser={setUser} />} />
+            <Route path="*" element={<Navigate to="/" />} />
+          </Routes>
+        </main>
+      </div>
+    </Router>
   );
 };
-
-function App() {
-  return (
-    <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </div>
-  );
-}
 
 export default App;

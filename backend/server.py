@@ -1,75 +1,383 @@
-from fastapi import FastAPI, APIRouter
-from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
 import os
-import logging
-from pathlib import Path
-from pydantic import BaseModel, Field
-from typing import List
 import uuid
-from datetime import datetime
+import requests
+from datetime import datetime, timedelta
+from typing import Optional, List
+from fastapi import FastAPI, HTTPException, Request, Response, Cookie, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel, EmailStr
+import asyncio
+import aiohttp
+import json
+from dotenv import load_dotenv
 
+load_dotenv()
 
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+app = FastAPI(title="CripteX API", version="1.0.0")
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
-
-# Create the main app without a prefix
-app = FastAPI()
-
-# Create a router with the /api prefix
-api_router = APIRouter(prefix="/api")
-
-
-# Define Models
-class StatusCheck(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
-
-class StatusCheckCreate(BaseModel):
-    client_name: str
-
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
-async def root():
-    return {"message": "Hello World"}
-
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.dict()
-    status_obj = StatusCheck(**status_dict)
-    _ = await db.status_checks.insert_one(status_obj.dict())
-    return status_obj
-
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    status_checks = await db.status_checks.find().to_list(1000)
-    return [StatusCheck(**status_check) for status_check in status_checks]
-
-# Include the router in the main app
-app.include_router(api_router)
-
+# CORS configuration
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# MongoDB connection
+MONGO_URL = os.environ.get('MONGO_URL')
+client = AsyncIOMotorClient(MONGO_URL)
+db = client.criptex
 
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
+# Models
+class User(BaseModel):
+    id: str
+    email: str
+    name: str
+    picture: str
+    free_predictions: int = 5
+    total_predictions_used: int = 0
+    referral_code: str
+    referred_by: Optional[str] = None
+    referral_count: int = 0
+    referral_earnings: int = 0
+    created_at: datetime
+    last_bonus_claim: Optional[datetime] = None
+
+class Session(BaseModel):
+    session_token: str
+    user_id: str
+    expires_at: datetime
+    created_at: datetime
+
+class Prediction(BaseModel):
+    id: str
+    user_id: str
+    symbol: str
+    prediction_type: str  # "bullish", "bearish"
+    timeframe: str  # "5m", "15m", "1h", "4h", "1d"
+    confidence: float
+    entry_price: float
+    target_price: float
+    stop_loss: float
+    created_at: datetime
+    is_free: bool
+
+class CryptoData(BaseModel):
+    symbol: str
+    current_price: float
+    price_change_24h: float
+    price_change_percentage_24h: float
+    volume_24h: float
+    market_cap: float
+    last_updated: datetime
+
+# Dependency to get current user
+async def get_current_user(request: Request, session_token: Optional[str] = Cookie(None)) -> Optional[User]:
+    token = session_token
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+    
+    if not token:
+        return None
+    
+    session = await db.sessions.find_one({"session_token": token})
+    if not session or session["expires_at"] < datetime.utcnow():
+        return None
+    
+    user = await db.users.find_one({"id": session["user_id"]})
+    return User(**user) if user else None
+
+# Authentication endpoints
+@app.post("/api/auth/session")
+async def create_session(request: Request, response: Response):
+    data = await request.json()
+    session_id = data.get("session_id")
+    
+    if not session_id:
+        raise HTTPException(status_code=400, detail="Session ID required")
+    
+    # Call Emergent auth API
+    headers = {"X-Session-ID": session_id}
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
+            headers=headers
+        ) as resp:
+            if resp.status != 200:
+                raise HTTPException(status_code=401, detail="Invalid session")
+            
+            auth_data = await resp.json()
+    
+    # Check if user exists, if not create new user
+    existing_user = await db.users.find_one({"email": auth_data["email"]})
+    
+    if not existing_user:
+        # Generate referral code
+        referral_code = str(uuid.uuid4())[:8].upper()
+        
+        user_data = {
+            "id": auth_data["id"],
+            "email": auth_data["email"],
+            "name": auth_data["name"],
+            "picture": auth_data["picture"],
+            "free_predictions": 5,
+            "total_predictions_used": 0,
+            "referral_code": referral_code,
+            "referred_by": None,
+            "referral_count": 0,
+            "referral_earnings": 0,
+            "created_at": datetime.utcnow(),
+            "last_bonus_claim": None
+        }
+        await db.users.insert_one(user_data)
+        user = User(**user_data)
+    else:
+        user = User(**existing_user)
+    
+    # Create session
+    session_token = auth_data["session_token"]
+    session_data = {
+        "session_token": session_token,
+        "user_id": user.id,
+        "expires_at": datetime.utcnow() + timedelta(days=7),
+        "created_at": datetime.utcnow()
+    }
+    await db.sessions.insert_one(session_data)
+    
+    # Set session cookie
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/",
+        max_age=7 * 24 * 60 * 60  # 7 days
+    )
+    
+    return {"user": user.dict(), "session_token": session_token}
+
+@app.get("/api/auth/me")
+async def get_me(user: User = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
+
+@app.post("/api/auth/logout")
+async def logout(response: Response, user: User = Depends(get_current_user)):
+    if user:
+        await db.sessions.delete_many({"user_id": user.id})
+    
+    response.delete_cookie(key="session_token", path="/")
+    return {"message": "Logged out successfully"}
+
+# Crypto data endpoints
+@app.get("/api/crypto/prices")
+async def get_crypto_prices():
+    """Get current crypto prices from CoinGecko API"""
+    popular_coins = [
+        "bitcoin", "ethereum", "binancecoin", "cardano", "solana", 
+        "polkadot", "dogecoin", "avalanche-2", "chainlink", "polygon"
+    ]
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            url = f"https://api.coingecko.com/api/v3/simple/price?ids={','.join(popular_coins)}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_market_cap=true"
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    crypto_data = []
+                    
+                    for coin_id, coin_data in data.items():
+                        crypto_info = {
+                            "symbol": coin_id.replace("-", "").upper(),
+                            "current_price": coin_data.get("usd", 0),
+                            "price_change_24h": coin_data.get("usd_24h_change", 0),
+                            "price_change_percentage_24h": coin_data.get("usd_24h_change", 0),
+                            "volume_24h": coin_data.get("usd_24h_vol", 0),
+                            "market_cap": coin_data.get("usd_market_cap", 0),
+                            "last_updated": datetime.utcnow()
+                        }
+                        crypto_data.append(crypto_info)
+                    
+                    return crypto_data
+                else:
+                    raise HTTPException(status_code=500, detail="Failed to fetch crypto data")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching crypto data: {str(e)}")
+
+@app.get("/api/crypto/chart/{symbol}")
+async def get_crypto_chart(symbol: str, timeframe: str = "1h"):
+    """Get crypto chart data"""
+    coin_map = {
+        "BITCOIN": "bitcoin",
+        "ETHEREUM": "ethereum",
+        "BINANCECOIN": "binancecoin",
+        "CARDANO": "cardano",
+        "SOLANA": "solana",
+        "POLKADOT": "polkadot",
+        "DOGECOIN": "dogecoin",
+        "AVALANCHE2": "avalanche-2",
+        "CHAINLINK": "chainlink",
+        "POLYGON": "polygon"
+    }
+    
+    coin_id = coin_map.get(symbol.upper(), symbol.lower())
+    days = {"5m": 1, "15m": 1, "1h": 7, "4h": 30, "1d": 365}.get(timeframe, 7)
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart?vs_currency=usd&days={days}"
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return {
+                        "prices": data.get("prices", []),
+                        "volumes": data.get("total_volumes", []),
+                        "market_caps": data.get("market_caps", [])
+                    }
+                else:
+                    raise HTTPException(status_code=500, detail="Failed to fetch chart data")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching chart data: {str(e)}")
+
+# Predictions endpoints
+@app.get("/api/predictions")
+async def get_predictions(user: User = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    predictions = await db.predictions.find({"user_id": user.id}).sort("created_at", -1).to_list(100)
+    return predictions
+
+@app.post("/api/predictions")
+async def create_prediction(
+    symbol: str,
+    prediction_type: str,
+    timeframe: str,
+    target_price: float,
+    stop_loss: float,
+    user: User = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    if user.free_predictions <= 0:
+        raise HTTPException(status_code=400, detail="No free predictions remaining")
+    
+    # Get current price
+    try:
+        async with aiohttp.ClientSession() as session:
+            coin_map = {
+                "BITCOIN": "bitcoin",
+                "ETHEREUM": "ethereum",
+                "BINANCECOIN": "binancecoin"
+            }
+            coin_id = coin_map.get(symbol.upper(), symbol.lower())
+            url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd"
+            async with session.get(url) as resp:
+                data = await resp.json()
+                current_price = data[coin_id]["usd"]
+    except:
+        current_price = 50000  # Fallback price
+    
+    # Create prediction
+    prediction_data = {
+        "id": str(uuid.uuid4()),
+        "user_id": user.id,
+        "symbol": symbol,
+        "prediction_type": prediction_type,
+        "timeframe": timeframe,
+        "confidence": 75.5,  # Mock confidence
+        "entry_price": current_price,
+        "target_price": target_price,
+        "stop_loss": stop_loss,
+        "created_at": datetime.utcnow(),
+        "is_free": True
+    }
+    
+    await db.predictions.insert_one(prediction_data)
+    
+    # Update user's free predictions count
+    await db.users.update_one(
+        {"id": user.id},
+        {
+            "$inc": {"free_predictions": -1, "total_predictions_used": 1}
+        }
+    )
+    
+    return prediction_data
+
+# Bonus and referral endpoints
+@app.post("/api/bonus/claim")
+async def claim_daily_bonus(user: User = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    now = datetime.utcnow()
+    if user.last_bonus_claim and (now - user.last_bonus_claim).days < 1:
+        raise HTTPException(status_code=400, detail="Bonus already claimed today")
+    
+    await db.users.update_one(
+        {"id": user.id},
+        {
+            "$inc": {"free_predictions": 1},
+            "$set": {"last_bonus_claim": now}
+        }
+    )
+    
+    return {"message": "Daily bonus claimed!", "free_predictions": user.free_predictions + 1}
+
+@app.get("/api/referral/stats")
+async def get_referral_stats(user: User = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    return {
+        "referral_code": user.referral_code,
+        "referral_count": user.referral_count,
+        "referral_earnings": user.referral_earnings
+    }
+
+@app.post("/api/referral/use/{referral_code}")
+async def use_referral_code(referral_code: str, user: User = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    if user.referred_by:
+        raise HTTPException(status_code=400, detail="Referral code already used")
+    
+    # Find referrer
+    referrer = await db.users.find_one({"referral_code": referral_code})
+    if not referrer:
+        raise HTTPException(status_code=404, detail="Invalid referral code")
+    
+    if referrer["id"] == user.id:
+        raise HTTPException(status_code=400, detail="Cannot use your own referral code")
+    
+    # Update both users
+    await db.users.update_one(
+        {"id": user.id},
+        {
+            "$set": {"referred_by": referrer["id"]},
+            "$inc": {"free_predictions": 1}
+        }
+    )
+    
+    await db.users.update_one(
+        {"id": referrer["id"]},
+        {
+            "$inc": {"referral_count": 1, "referral_earnings": 1, "free_predictions": 1}
+        }
+    )
+    
+    return {"message": "Referral code applied successfully!", "bonus_predictions": 1}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8001)
